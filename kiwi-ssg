@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+
+if [ -f ".kiwirc" ]; then
+    source .kiwirc
+fi
+
+initFunc() {
+    git clone https://github.com/kinzoku-dev/kiwi-ssg-template .
+}
+
+rebuildFunc() {
+    #Initial Cleanup
+    find ./static/embed/ -name "*.html" -type f -delete
+    find ./static/ -name "*.html" -type f -delete
+    echo "" > ./static/dates.txt
+
+    # Location Shortcuts
+    convertVar="pandoc"
+    startVar="./snippets/start.html"
+    headerVar="./snippets/header.html"
+    footerVar="./snippets/footer.html"
+    endVar="./snippets/end.html"
+
+    # Creates the posts page, and populates it with new posts along with their dates
+    frontFunc() {
+        sed -i '/-/d' ./pages/$POSTS.md
+        for l in $(find pages | cut -d "/" -f2 | cut -d "." -f1 | grep -v -e 'embed' -e $HOME -e 'about' -e 'pages' -e $POSTS); do
+            d=$(grep "Date" ./pages/"$l".md | cut -d " " -f 3)
+            echo "   - [$d $l]($l.html)" >> ./static/dates.txt
+        done
+        cat ./static/dates.txt >> ./pages/$POSTS.md
+    }
+
+    # Transforms markdown files into actual HTML pages with all the core elements needed for the website
+    redoFunc() {
+        for i in $(find pages | cut -d "/" -f2 | cut -d "." -f1  | grep -v -e 'html' -e 'pages'); do
+            #Inside Vars
+            pages="./pages/$i.md"
+            static="./static/$i.html"
+            staticEmbed="./static/embed/$i.html"
+            "$convertVar" -f markdown "$pages" -o "$staticEmbed"
+            cat "$startVar" "$headerVar" "$staticEmbed" "$footerVar" "$endVar" > "$static"
+        done
+    }
+
+    linkFunc() {
+        for i in $(ls ./static/styles); do
+            unlink ./static/styles/$i
+        done
+        for i in $(ls ./styles); do
+            ln ./styles/$i ./static/styles/$i
+        done
+    }
+
+    # Runs the Functions
+    frontFunc
+    redoFunc
+    linkFunc
+}
+
+if [ "$1" = "--rebuild" ]; then
+    rebuildFunc
+
+elif [ "$1" = "--new" ]; then
+    $EDITOR ./pages/"$2".md
+
+elif [ "$1" = "--edit" ]; then
+    if [ "$2" = null ]; then
+        echo "Invalid post"
+    fi
+    if [ ! -f "./pages/$2.md" ]; then
+        echo "page doesn't exist"
+    else
+        $EDITOR ./pages/"$2".md
+    fi
+
+elif [ "$1" = "--init" ]; then
+    initFunc
+
+elif [ "$1" = "--rsync" ]; then
+    if [ -z "$2" ] || [ -z "$3" ]; then
+        echo "Specify server and directory"
+    else
+        rsync -uvrP --delete-after ./static/* $2:$3
+    fi
+
+else
+    echo -e """
+    --init \tCreates a new project in the current directory
+    --rebuild \t\tRebuilds the site
+    --new <post-name> \tCreates a new post as ./pages/<post-name>.md
+    --edit <post-name> \tEdits an existing post in ./pages/<post-name>.md
+    --rsync <server> <directory> \tSyncs static folder to a directory on a server with SSH
+    """
+fi
+
